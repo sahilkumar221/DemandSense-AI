@@ -1,6 +1,7 @@
 import joblib
 import pandas as pd
 import streamlit as st
+from sklearn.ensemble import RandomForestRegressor
 
 # --------------------------------------------------
 # Page setup
@@ -37,32 +38,54 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+
 # --------------------------------------------------
 # Load model and dataset
 # --------------------------------------------------
-@st.cache_resource
-def load_model():
-    saved = joblib.load("demand_model.pkl")
-    return saved["model"], saved["features"]
 
+import os
+import pickle
+from sklearn.ensemble import RandomForestRegressor
 
 @st.cache_data
 def load_data():
-    data = pd.read_csv("data/hour.csv")
-    data["dteday"] = pd.to_datetime(data["dteday"])
-    return data
+    return pd.read_csv("data/hour.csv")
 
+@st.cache_resource
+def load_model():
+    features = [
+        "season", "yr", "mnth", "hr", "holiday", "weekday",
+        "workingday", "weathersit", "temp", "atemp", "hum",
+        "windspeed"
+    ]
 
-try:
-    model, features = load_model()
+    # Load the dataset
     df = load_data()
-except Exception as exc:
-    st.error(f"Could not load the model or dataset: {exc}")
-    st.info(
-        "Check that demand_model.pkl and data/hour.csv "
-        "exist in your project."
+
+    # Use the saved model if it can be loaded.
+    if os.path.exists("demand_model.pkl"):
+        try:
+            with open("demand_model.pkl", "rb") as file:
+                saved = pickle.load(file)
+
+            return saved
+        except (ModuleNotFoundError, AttributeError, ImportError, pickle.UnpicklingError):
+            st.warning("The saved model could not be loaded. Training a replacement.")
+
+    # Train a model if no usable saved model is available.
+    model = RandomForestRegressor(
+        n_estimators=100,
+        random_state=42,
+        n_jobs=-1
     )
-    st.stop()
+    model.fit(df[features], df["cnt"])
+
+    return {"model": model, "features": features}
+
+df = load_data()
+loaded = load_model()
+model = loaded["model"]
+features = loaded["features"]
 
 # --------------------------------------------------
 # Header
@@ -99,7 +122,6 @@ c1.metric("Hourly Records", f"{total_records:,}")
 c2.metric("Average Hourly Rentals", f"{average_demand:.1f}")
 c3.metric("Peak Demand Hour", f"{peak_hour:02d}:00")
 c4.metric("Total Recorded Rentals", f"{total_rentals:,}")
-
 st.caption(
     "These figures summarize the loaded dataset; "
     "they are not live rental counts."
